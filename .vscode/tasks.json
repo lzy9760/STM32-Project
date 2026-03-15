@@ -1,0 +1,45 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Keil: 编译 (Build)",
+      "type": "shell",
+      "command": "\"C:\\Keil_v5\\UV4\\UV4.exe\"",
+      "args": [
+        "-b",
+        "${workspaceFolder}/MDK-ARM/freertos_test1.uvprojx",
+        "-j0",
+        "-o",
+        "${workspaceFolder}/MDK-ARM/build_log.txt"
+      ],
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Keil: 重新编译 (Rebuild)",
+      "type": "shell",
+      "command": "\"C:\\Keil_v5\\UV4\\UV4.exe\"",
+      "args": [
+        "-b",
+        "${workspaceFolder}/MDK-ARM/freertos_test1.uvprojx",
+        "-j0",
+        "-c",
+        "-o",
+        "${workspaceFolder}/MDK-ARM/build_log.txt"
+      ],
+      "group": "build",
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      },
+      "problemMatcher": []
+    }
+  ]
+}

@@ -1,0 +1,10 @@
+#ifndef TASK_CFG_H
+#define TASK_CFG_H
+
+#define TASK_CONTROL_PERIOD_MS 1U
+#define TASK_COMM_PERIOD_MS    10U
+#define TASK_MONITOR_PERIOD_MS 100U
+#define TASK_DEBUG_PERIOD_MS   200U
+
+#endif /* TASK_CFG_H */
+
