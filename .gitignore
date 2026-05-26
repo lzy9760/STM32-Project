@@ -1,0 +1,24 @@
+# Keil / MDK build products
+**/Objects/
+**/Listings/
+**/Mecanum_Wheels_Car(new)/
+**/NRF_Remote/
+**/*.o
+**/*.d
+**/*.crf
+**/*.htm
+**/*.map
+**/*.axf
+**/*.lnp
+**/*.dep
+**/*.lst
+**/*.uvguix.*
+**/*.log
+
+# Local IDE/editor files
+**/.vscode/
+*.user
+*.tmp
+
+# Keep published firmware hex files
+!00_Firmware_HEX/*.hex
