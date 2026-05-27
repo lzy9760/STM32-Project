@@ -5,7 +5,7 @@
 <p><b>Wheel-Inertial Fusion Mecanum Robot Navigation System</b></p>
 
 <p>
-  <b>3 m 级自动导航平均误差 &lt; 5 cm</b> |
+  <b>3 m 级自动导航平均误差 &lt; 3 cm</b> |
   <b>四轮编码器里程计</b> |
   <b>MPU6050 AHRS 姿态估计</b> |
   <b>FreeRTOS 实时控制</b> |
