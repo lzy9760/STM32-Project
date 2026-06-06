@@ -23,6 +23,12 @@
 >
 > ![图 1 系统闭环结构：通信、定位、规划、底盘与电机输出](docs/images/report_fig_01.png)
 
+> 教学视频
+>
+> <video src="docs/videos/navigation_teaching_video_fontsafe_1080p60.mp4" controls width="100%"></video>
+>
+> [无法播放时点击查看教学视频](docs/videos/navigation_teaching_video_fontsafe_1080p60.mp4)
+
 ---
 
 ## 项目速览
