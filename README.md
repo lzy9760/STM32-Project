@@ -25,9 +25,9 @@
 
 > 教学视频
 >
-> <video src="docs/videos/navigation_teaching_video_fontsafe_1080p60.mp4" controls width="100%"></video>
+> [![教学视频预览](docs/images/navigation_teaching_video_preview.gif)](https://github.com/lzy9760/STM32-Project/raw/main/docs/videos/navigation_teaching_video_fontsafe_1080p60.mp4)
 >
-> [无法播放时点击查看教学视频](docs/videos/navigation_teaching_video_fontsafe_1080p60.mp4)
+> [点击查看完整教学视频](https://github.com/lzy9760/STM32-Project/raw/main/docs/videos/navigation_teaching_video_fontsafe_1080p60.mp4)
 
 ---
 
