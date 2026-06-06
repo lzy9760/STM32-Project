@@ -23,11 +23,11 @@
 >
 > ![图 1 系统闭环结构：通信、定位、规划、底盘与电机输出](docs/images/report_fig_01.png)
 
-> 教学视频
+> 视频
 >
-> [![教学视频预览](docs/images/navigation_teaching_video_preview.gif)](https://github.com/lzy9760/STM32-Project/raw/main/docs/videos/navigation_teaching_video_fontsafe_1080p60.mp4)
+> [![视频预览](docs/images/navigation_teaching_video_preview.gif)](https://github.com/lzy9760/STM32-Project/raw/main/docs/videos/navigation_teaching_video_fontsafe_1080p60.mp4)
 >
-> [点击查看完整教学视频](https://github.com/lzy9760/STM32-Project/raw/main/docs/videos/navigation_teaching_video_fontsafe_1080p60.mp4)
+> [点击查看完整视频](https://github.com/lzy9760/STM32-Project/raw/main/docs/videos/navigation_teaching_video_fontsafe_1080p60.mp4)
 
 ---
 
