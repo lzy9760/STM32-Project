@@ -12,11 +12,24 @@
   <img alt="Tracker" src="https://img.shields.io/badge/Tracker-MPC-FF8C00" />
 </p>
 
+<table>
+  <tr>
+    <td align="center"><strong>≤ 5 cm</strong><br/>横向终点误差</td>
+    <td align="center"><strong>≤ 5 cm</strong><br/>纵向终点误差</td>
+    <td align="center"><strong>B-Spline</strong><br/>连续路径生成</td>
+    <td align="center"><strong>MPC + EKF</strong><br/>预测控制与融合定位</td>
+  </tr>
+</table>
+
+<p>
+  <img width="100%" alt="B-Spline、MPC 与 EKF 四舵轮自主导航算法栈" src="../docs/images/swerve_navigation_stack.svg" />
+</p>
+
 </div>
 
 这是一套面向四舵轮底盘的裸机自动导航固件。系统在 1 kHz 主控制节拍下完成双 CAN 电机反馈、遥控解析、四舵轮解算和电机闭环；导航层按独立周期运行 B 样条路径采样、融合里程计、速度规划与 MPC 求解。
 
-当前版本是一份可继续实车调参的开发基线。它强调可诊断和可回退：关键状态均能在调试器中观察，MPC 求解失败会回退到前瞻控制，也可通过一个宏完整关闭 MPC。
+当前版本已经完成心形闭合轨迹实车测试。在当前底盘、地面与标定参数下，横向和纵向终点误差均可控制在 **5 cm 以内**。它同时强调可诊断和可回退：关键状态均能在调试器中观察，MPC 求解失败会回退到前瞻控制，也可通过一个宏完整关闭 MPC。
 
 ## 功能亮点
 
