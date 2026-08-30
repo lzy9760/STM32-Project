@@ -8,13 +8,28 @@
 #define PATH_MIN_ACCEL_MM       100.0f
 #define PATH_MAX_ACCEL_MM       400.0f
 #define PATH_TANGENT_STEP       0.002f
-#define PATH_S_LENGTH           150.0f
+#define PATH_MAX_ACCEL_MM_S2    600.0f
+#define PATH_CURVATURE_WINDOW_MM 20.0f
 
-static const float g_knots[10] =
+static const float g_knots[13] =
 {
     0.0f, 0.0f, 0.0f, 0.0f,
-    0.33333333f, 0.66666667f,
+    0.16666667f, 0.33333333f, 0.5f,
+    0.66666667f, 0.83333333f,
     1.0f, 1.0f, 1.0f, 1.0f
+};
+
+static const PathPoint g_heart_control_scale[PATH_BSPLINE_CONTROL_COUNT] =
+{
+    {0.0f,        0.0f},
+    {0.26666667f, -0.33333333f},
+    {0.83333333f, -1.0f},
+    {1.1f,        -0.6f},
+    {0.4f,         0.0f},
+    {1.1f,         0.6f},
+    {0.83333333f,  1.0f},
+    {0.26666667f,  0.33333333f},
+    {0.0f,         0.0f}
 };
 
 static float Path_Clamp(float value, float minimum, float maximum)
@@ -52,17 +67,18 @@ static PathPoint Path_PointAt(const CubicBSplinePath *path, float parameter)
     float denominator;
 
     parameter = Path_Clamp(parameter, 0.0f, 1.0f);
-    if(parameter < g_knots[4])
+    span = (int)PATH_BSPLINE_CONTROL_COUNT - 1;
+    if(parameter < 1.0f)
     {
-        span = 3;
-    }
-    else if(parameter < g_knots[5])
-    {
-        span = 4;
-    }
-    else
-    {
-        span = 5;
+        for(span = 3;
+            span < (int)PATH_BSPLINE_CONTROL_COUNT;
+            span++)
+        {
+            if(parameter < g_knots[span + 1])
+            {
+                break;
+            }
+        }
     }
 
     for(j = 0; j <= 3; j++)
@@ -75,11 +91,11 @@ static PathPoint Path_PointAt(const CubicBSplinePath *path, float parameter)
     {
         for(j = 3; j >= r; j--)
         {
-            denominator = g_knots[j + 1 + span - r] -
-                          g_knots[j + span - 3];
+            denominator = g_knots[j + 1 + span - r]/*右边界*/ -
+                          g_knots[j + span - 3]/*左边界*/;
             if(denominator > 0.000001f)
             {
-                alpha = (parameter - g_knots[j + span - 3]) / denominator;
+                alpha = (parameter - g_knots[j + span - 3]/*左边界*/) / denominator;
             }
             else
             {
@@ -147,21 +163,57 @@ static float Path_ParameterAtDistance(const CubicBSplinePath *path,
     return 1.0f;
 }
 
-void PathPlanner_BuildCubicBSpline(CubicBSplinePath *path,
+static float Path_CurvatureAt(const CubicBSplinePath *path,
+                              float distance_mm)
+{
+    PathPoint tangent_before;
+    PathPoint tangent_after;
+    float before_distance;
+    float after_distance;
+    float arc_distance;
+    float cross;
+    float dot;
+    float turn_angle_rad;
+
+    if(path == 0)
+    {
+        return 0.0f;
+    }
+    before_distance = Path_Clamp(distance_mm - PATH_CURVATURE_WINDOW_MM,
+                                 0.0f, path->length_mm);
+    after_distance = Path_Clamp(distance_mm + PATH_CURVATURE_WINDOW_MM,
+                                0.0f, path->length_mm);
+    arc_distance = after_distance - before_distance;
+    if(arc_distance <= 0.0001f)
+    {
+        return 0.0f;
+    }
+    tangent_before = Path_TangentAt(
+        path, Path_ParameterAtDistance(path, before_distance));
+    tangent_after = Path_TangentAt(
+        path, Path_ParameterAtDistance(path, after_distance));
+    cross = (tangent_before.x_mm * tangent_after.y_mm) -
+            (tangent_before.y_mm * tangent_after.x_mm);
+    dot = (tangent_before.x_mm * tangent_after.x_mm) +
+          (tangent_before.y_mm * tangent_after.y_mm);
+    turn_angle_rad = fabsf(atan2f(cross, dot));
+    return turn_angle_rad / arc_distance;
+}
+
+void PathPlanner_BuildHeartBSpline(CubicBSplinePath *path,
                                    PathPoint start,
-                                   PathPoint goal,
                                    float start_yaw_deg,
+                                   float forward_scale_mm,
+                                   float half_width_mm,
                                    float max_speed_mm_s)
 {
     uint8_t i;
-    float dx;
-    float dy;
-    float distance;
-    
-    float heading_x;
-    float heading_y;
-    float control_spacing;
+    float heading_cos;
+    float heading_sin;
+    float local_forward_mm;
+    float local_lateral_mm;
     float parameter;
+    float min_accel_mm;
     PathPoint last;
     PathPoint now;
 
@@ -170,29 +222,22 @@ void PathPlanner_BuildCubicBSpline(CubicBSplinePath *path,
         return;
     }
 
-    dx = goal.x_mm - start.x_mm;
-    dy = goal.y_mm - start.y_mm;
-    distance = sqrtf((dx * dx) + (dy * dy));
-    
-    heading_x = cosf(start_yaw_deg * PATH_PI / 180.0f);
-    heading_y = sinf(start_yaw_deg * PATH_PI / 180.0f);
+    heading_cos = cosf(start_yaw_deg * PATH_PI / 180.0f);
+    heading_sin = sinf(start_yaw_deg * PATH_PI / 180.0f);
 
-    control_spacing = Path_Clamp(PATH_S_LENGTH, 50.0f, 400.0f);
-    if(control_spacing > (distance * 0.22f))
+    for(i = 0U; i < PATH_BSPLINE_CONTROL_COUNT; i++)
     {
-        control_spacing = distance * 0.22f;
+        local_forward_mm = g_heart_control_scale[i].x_mm *
+                           forward_scale_mm;
+        local_lateral_mm = g_heart_control_scale[i].y_mm *
+                           half_width_mm;
+        path->control[i].x_mm = start.x_mm +
+                                local_forward_mm * heading_cos -
+                                local_lateral_mm * heading_sin;
+        path->control[i].y_mm = start.y_mm +
+                                local_forward_mm * heading_sin +
+                                local_lateral_mm * heading_cos;
     }
-
-    path->control[0] = start;
-    path->control[1].x_mm = start.x_mm + heading_x * control_spacing;
-    path->control[1].y_mm = start.y_mm + heading_y * control_spacing;
-    path->control[2].x_mm = start.x_mm + heading_x * control_spacing * 2.0f;
-    path->control[2].y_mm = start.y_mm + heading_y * control_spacing * 2.0f;
-    path->control[3].x_mm = goal.x_mm - heading_x * control_spacing * 2.0f;
-    path->control[3].y_mm = goal.y_mm - heading_y * control_spacing * 2.0f;
-    path->control[4].x_mm = goal.x_mm - heading_x * control_spacing;
-    path->control[4].y_mm = goal.y_mm - heading_y * control_spacing;
-    path->control[5] = goal;
 
     path->distance_lut[0] = 0.0f;
     last = Path_PointAt(path, 0.0f);
@@ -212,6 +257,13 @@ void PathPlanner_BuildCubicBSpline(CubicBSplinePath *path,
     path->accel_distance_mm = Path_Clamp(path->length_mm * PATH_ACCEL_RATIO,
                                          PATH_MIN_ACCEL_MM,
                                          PATH_MAX_ACCEL_MM);
+    /* 高速时按加速度上限加长加减速距离，防止打滑（低速行为不变） */
+    min_accel_mm = (path->max_speed_mm_s * path->max_speed_mm_s) /
+                   (2.0f * PATH_MAX_ACCEL_MM_S2);
+    if(path->accel_distance_mm < min_accel_mm)
+    {
+        path->accel_distance_mm = min_accel_mm;
+    }
     if(path->accel_distance_mm > (path->length_mm * 0.5f))
     {
         path->accel_distance_mm = path->length_mm * 0.5f;
@@ -231,6 +283,7 @@ PathSample PathPlanner_SampleByDistance(const CubicBSplinePath *path,
     sample.point.y_mm = 0.0f;
     sample.tangent.x_mm = 1.0f;
     sample.tangent.y_mm = 0.0f;
+    sample.curvature = 0.0f;
     sample.speed_mm_s = 0.0f;
     sample.distance_mm = 0.0f;
     sample.finished = 1U;
@@ -243,6 +296,7 @@ PathSample PathPlanner_SampleByDistance(const CubicBSplinePath *path,
     parameter = Path_ParameterAtDistance(path, sample.distance_mm);
     sample.point = Path_PointAt(path, parameter);
     sample.tangent = Path_TangentAt(path, parameter);
+    sample.curvature = Path_CurvatureAt(path, sample.distance_mm);
     sample.finished = (sample.distance_mm >= path->length_mm) ? 1U : 0U;
 
     if(path->accel_distance_mm > 0.001f)

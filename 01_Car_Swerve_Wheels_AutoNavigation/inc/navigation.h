@@ -6,9 +6,9 @@
 
 
 #define NAV_AUTO_START_DELAY_MS      5000U
-#define NAV_TARGET_X_MM              3000.0f
-#define NAV_TARGET_Y_MM              1500.0f
-#define NAV_MAX_SPEED_MM_S           500.0f
+#define NAV_HEART_FORWARD_SCALE_MM   3000.0f
+#define NAV_HEART_HALF_WIDTH_MM      1500.0f
+#define NAV_MAX_SPEED_MM_S           1500.0f
 
 typedef enum
 {
