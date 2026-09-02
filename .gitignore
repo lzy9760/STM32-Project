@@ -14,6 +14,11 @@
 **/*.lst
 **/*.uvguix.*
 **/*.log
+**/*.bak
+
+# Project-local Keil outputs and archived review material
+**/MDK-ARM/diansai/
+**/MDK-ARM/tmp/
 
 # Local IDE/editor files
 **/.vscode/

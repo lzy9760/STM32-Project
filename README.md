@@ -1,280 +1,171 @@
 <div align="center">
 
-<h1>AT32 四舵轮自主导航系统</h1>
+# 车载平衡滚球运动控制系统（H题）
 
-<h3>B-Spline × MPC × EKF</h3>
+### 2026 年全国大学生电子设计竞赛赛区赛（TI 杯）
 
-<p>一套真正运行在实车上的路径生成、预测控制、轮惯融合与八电机闭环方案</p>
+[![MCU](https://img.shields.io/badge/MCU-STM32F407ZGT6-03234B?logo=stmicroelectronics&logoColor=white)](#)
+[![Framework](https://img.shields.io/badge/Framework-HAL%20%2B%20CubeMX-27A9E1)](#)
+[![Vision](https://img.shields.io/badge/Vision-MaixCAM-7B61FF)](#)
+[![Control](https://img.shields.io/badge/Control-Cascade%20PID-00A86B)](#)
+[![Branch](https://img.shields.io/badge/Branch-diansai__2026-F05032?logo=git&logoColor=white)](#)
 
-<p>
-  <img alt="MCU" src="https://img.shields.io/badge/AT32F403A-240%20MHz-1677FF?style=for-the-badge" />
-  <img alt="Chassis" src="https://img.shields.io/badge/CHASSIS-4--SWERVE-00A896?style=for-the-badge" />
-  <img alt="Language" src="https://img.shields.io/badge/LANGUAGE-C-A8B9CC?style=for-the-badge&logo=c&logoColor=white" />
-  <img alt="Toolchain" src="https://img.shields.io/badge/TOOLCHAIN-KEIL%20MDK5-6C4AB6?style=for-the-badge" />
-</p>
-
-<table>
-  <tr>
-    <td align="center"><strong>≤ 5 cm</strong><br/>横向终点误差</td>
-    <td align="center"><strong>≤ 5 cm</strong><br/>纵向终点误差</td>
-    <td align="center"><strong>20 ms</strong><br/>MPC 求解周期</td>
-    <td align="center"><strong>1 kHz</strong><br/>底盘控制节拍</td>
-  </tr>
-</table>
-
-<p>
-  <img width="100%" alt="B-Spline、MPC 与 EKF 四舵轮自主导航算法栈" src="docs/images/swerve_navigation_stack.svg" />
-</p>
-
-<p>
-  <a href="#三大核心算法">核心算法</a> ·
-  <a href="#完整控制闭环">系统架构</a> ·
-  <a href="#实车结果">实车结果</a> ·
-  <a href="#快速开始">快速开始</a> ·
-  <a href="01_Car_Swerve_Wheels_AutoNavigation/README.md">完整技术文档</a>
-</p>
+**循迹小车 × 视觉定位 × 平衡杆 × 级联控制**
 
 </div>
 
----
+> 设计制作一辆载有平衡滚球运动控制装置的循线小车，小车沿场地黑色引导线运动，同时控制小球在凹槽平衡杆上指定位置稳定。
 
-## 项目简介
+本分支收录 H 题工程的 STM32 底层控制、红外循迹、编码器闭环、MaixCAM 小球视觉定位、平衡杆角度采集和步进电机控制代码。为避免误导，下文将“赛题指标”与“当前代码状态”分开说明。
 
-这不是只在 MATLAB 中绘制理想曲线的算法 Demo，而是一套落到 AT32F403A 和四舵轮实车上的完整导航控制链：
+## 系统亮点
 
-```text
-三次 B 样条生成轨迹
-        ↓
-曲率限速与前瞻制动
-        ↓
-轻量化运动学 MPC 预测控制
-        ↓
-EKF 融合轮速、陀螺与航向角
-        ↓
-四舵轮逆运动学与八电机 PID
-        ↓
-双 CAN 驱动 GM6020 + M3508
-```
+- **8 路红外灰度循迹**：PA0–PA7 由 ADC1 + DMA 循环采样，通过归一化加权偏差与 PD 完成路径跟踪。
+- **车轮速度闭环**：双路编码器反馈 + PI 调速，将循迹输出转换为左右轮速目标。
+- **视觉小球定位**：MaixCAM 基于 LAB 色块提取小球中心，标定后输出带符号位置（mm）。
+- **双环平衡控制**：外环位置 PID 生成平衡杆角度目标，内环角度 PID 控制步进电机频率与方向。
+- **可观测与可调试**：OLED 显示关键状态，VOFA+ 输出循迹、轮速和滚球控制变量。
 
-当前版本已经完成心形闭合轨迹实车测试。在当前底盘、地面和标定参数下，横向与纵向终点误差均可控制在 **5 cm 以内**。
-
-## 三大核心算法
-
-<table>
-  <tr>
-    <td width="33%" valign="top">
-      <h3>① Cubic B-Spline</h3>
-      <p><strong>连续、平滑、可按弧长采样</strong></p>
-      <p>9 个控制点构造心形闭合轨迹，128 段 LUT 建立参数与路径距离映射，同时输出位置、切向量和曲率。</p>
-      <p><code>path_planner.c</code></p>
-    </td>
-    <td width="33%" valign="top">
-      <h3>② Embedded MPC</h3>
-      <p><strong>提前看见误差，而不是事后追赶</strong></p>
-      <p>二维运动学模型、5 步预测域、投影梯度迭代，并显式限制速度和加速度；求解失败可自动回退。</p>
-      <p><code>navigation.c</code></p>
-    </td>
-    <td width="33%" valign="top">
-      <h3>③ Yaw EKF</h3>
-      <p><strong>让轮速和 IMU 各自做擅长的事</strong></p>
-      <p>融合轮速角速度、HWT9018 gyro Z 与低增益 yaw 锚定，联合估计航向、角速度和陀螺零偏。</p>
-      <p><code>odometry.c</code></p>
-    </td>
-  </tr>
-</table>
-
-## 完整控制闭环
+## 控制架构
 
 ```mermaid
 flowchart LR
-    subgraph Planning[路径与速度规划]
-        CP[9 个控制点] --> BS[B-Spline]
-        BS --> LUT[弧长 LUT]
-        LUT --> CURV[曲率限速]
-        CURV --> BRAKE[反向制动包络]
+    subgraph Car["循迹小车"]
+        IR[8 路红外灰度] -->|ADC1 + DMA| ERR[加权偏差]
+        ERR --> PD[循迹 PD]
+        PD --> WREF[左右轮目标]
+        ENC[编码器] --> PI[轮速 PI]
+        WREF --> PI
+        PI --> PWM[TIM1 PWM]
+        PWM --> MOTOR[差速底盘]
+        MOTOR --> ENC
     end
 
-    subgraph Localization[轮惯融合定位]
-        WHEEL[四轮速度与舵向] --> EKF[Yaw EKF]
-        GYRO[HWT9018 Gyro Z] --> EKF
-        YAW[HWT9018 Yaw] --> EKF
-        EKF --> POSE[x / y / yaw]
+    subgraph Ball["车载平衡滚球"]
+        CAM[MaixCAM] -->|UART5 / mm| POS[位置 PID·50 Hz]
+        POS --> AREF[平衡杆角度目标]
+        ANG[WDD35D4 角度传感器] -->|ADC2| APID[角度 PID·100 Hz]
+        AREF --> APID
+        APID -->|TIM3 STEP / DIR| STEP[D36A + 步进电机]
+        STEP --> ROD[凹槽平衡杆与小球]
+        ROD --> CAM
+        ROD --> ANG
     end
 
-    subgraph Control[预测控制]
-        BRAKE --> MPC[轻量化 MPC]
-        POSE --> MPC
-        MPC --> W2B[世界坐标 → 车体坐标]
-    end
-
-    subgraph Chassis[四舵轮执行]
-        W2B --> IK[四舵轮逆运动学]
-        IK --> ARC[最短弧优化]
-        ARC --> SAFE[舵向对齐保护]
-        SAFE --> PID[转向级联 PID + 驱动速度 PID]
-        PID --> CAN[CAN1 / CAN2]
-        CAN --> MOTOR[4 × GM6020 + 4 × M3508]
-    end
-
-    MOTOR --> WHEEL
+    DBG[OLED / VOFA+] -. 状态与波形 .-> Car
+    DBG -. 状态与波形 .-> Ball
 ```
 
-## 为什么选择 B 样条
+## 官方赛题指标
 
-相比直接连接离散航点，三次 B 样条能够在控制点之间生成连续曲线，并保持较好的局部可调性。代码使用夹持节点向量和 De Boor 递推计算路径：
+> 以下是题目要求，不代表当前代码已完成或已经实测达标。
 
-```math
-\mathbf{C}(u)=\sum_{i=0}^{n}N_{i,3}(u)\mathbf{P}_i
-```
+| 项目 | 主要要求 | 分值 |
+|---|---|---:|
+| 车载视频监测 | 实时传输、显示、存储和回放平衡杆上的小球运动情况 | 6 |
+| 单圈循迹 | 从 A 点启动，顺时针一圈后停在 A 点；用时 ≤ 20 s，停车误差 ≤ 2 cm | 16 |
+| 静态定点控球 | 小球由 O 点依次运动到 **+5 cm、-5 cm** 并稳定；各段用时 ≤ 5 s，最大绝对误差 ≤ 1 cm | 13 |
+| A 到 B 运动控球 | 用时 ≤ 8 s，运动中小球中心与 O 点距离 ≤ 1 cm | 20 |
+| 单圈中心平衡 | 完成一圈 ≤ 30 s，全程小球中心误差 ≤ 1 cm | 20 |
+| 单圈指定位置平衡 | 完成一圈 ≤ 30 s，小球在平衡杆上指定位置稳定，误差 ≤ 1 cm | 20 |
+| 其他发挥 | 其他创新或扩展功能 | 5 |
 
-初始化阶段完成三件事：
+设计报告 20 分，基本要求与发挥部分 100 分，总分 120 分。
 
-1. 将归一化控制点按路径长度、宽度和起始航向变换到世界坐标。
-2. 建立 128 段弧长查找表，使控制器可以按“走了多少毫米”采样路径。
-3. 通过邻域切向量估计曲率，为高速转弯前的速度规划提供依据。
+### 场地与装置约束
 
-当前心形轨迹的控制点模板：
+- 场地引导线为黑色，线宽 `1.8 ± 0.2 cm`；AB、CD 直线段各 `1.5 m`，BC、DA 为半径 `0.5 m` 的半圆。
+- 小车长宽不大于 `35 cm × 25 cm`，循迹只能使用红外光电模块。
+- 运行期间不得遥控或人工干预，车载显示屏不大于 2 英寸。
+- 平衡杆长 25 cm，采用 PPR 管制作；小球位置必须由摄像头检测。
+
+## 当前代码状态
+
+| 模块 / 赛题项 | 状态 | 说明 |
+|---|---|---|
+| 8 路循迹 + 轮速闭环 | 已有完整代码链 | ADC/DMA、加权偏差、PD、编码器、轮速 PI 和完成检测均已实现 |
+| MaixCAM 小球位置检测 | 已实现 | Python 脚本完成 LAB 色块检测，通过 UART 向 STM32 发送 mm 位置 |
+| 静态平衡滚球 | 控制链已实现 | 位置外环 + 角度内环 + 步进电机脉冲输出；默认仍处于安全监测模式 |
+| 视频传输、存储、回放 | 未完整集成 | 当前 MaixCAM 脚本主要负责定位与本地画面叠加 |
+| 行车与控球同时运行 | 待整合 | 当前通过编译期任务宏切换循迹或静态控球，赛题第 4–6 项尚未形成同时闭环 |
+
+> [!IMPORTANT]
+> 题目要求的静态路径是 `O → +5 cm → -5 cm`；当前 `ball_config.h` 中的源码状态机是 `O → -5 cm → +5 cm`。本分支保留了用户原始代码，未擅自改参数或控制逻辑。
+
+> [!CAUTION]
+> `BALL_CONTROL_MODE` 默认为 `BALL_MODE_SENSOR_MONITOR`，步进电机不会被主动驱动。在机械限位、方向、零点和急停措施未确认前，不要直接切换到闭环模式。
+
+## 软硬件组成
+
+| 功能 | 器件 / 外设 | 主要接口 |
+|---|---|---|
+| 主控 | STM32F407ZGT6，168 MHz | HAL / CubeMX |
+| 8 路灰度 | 红外光电传感器 | PA0–PA7，ADC1 + DMA，TIM8 触发 |
+| 左右轮 PWM | 电机驱动 | TIM1 CH1 / CH2 |
+| 左右编码器 | 增量式编码器 | TIM2 / TIM4 |
+| 电机方向 | GPIO | PE8、PE10、PE12、PE14 |
+| 平衡杆角度 | WDD35D4 | PB0，ADC2_IN8 |
+| 步进驱动 | D36A | PC6 / TIM3_CH1 STEP，PC8 DIR，PB14 EN |
+| 小球视觉 | MaixCAM | UART5 RX（PD2），115200 baud |
+| OLED | I²C 显示 | PB6 / PB7，I2C1 |
+| VOFA+ | 调试数据 | USART3，PB10 / PB11 |
+| 按键 / 状态输入 | 启动、完成、模式 | PG0–PG3 |
+
+## 仓库结构
 
 ```text
-Start ──╮      ╭── Right lobe
-        ╰╮    ╭╯
-         ╲╲  ╱╱
-          ╲╲╱╱
-           ╲╱       ← heart tip
-           ╱╲
-          ╱  ╲
-         ╰────╯      ← closed path returns to Start
+02_Car_Balance_Ball_Control_System/
+├── Core/
+│   ├── Inc/                      # 应用配置、循迹、底盘、滚球控制头文件
+│   └── Src/                      # STM32 主程序与控制实现
+├── Drivers/                       # STM32 HAL / CMSIS
+├── MaixCAM/
+│   └── maixcam_ball.py           # 小球检测、标定与 UART 位置输出
+├── MDK-ARM/
+│   └── diansai.uvprojx           # Keil MDK 工程
+├── diansai.ioc                    # STM32CubeMX 配置
+└── THIRD_TASK_README.md           # 原有静态控球调试说明
 ```
-
-## MPC 如何在 MCU 上运行
-
-MPC 使用世界坐标中的二维位置作为预测状态，二维平移速度作为控制输入：
-
-```math
-\mathbf{p}_{k+1}=\mathbf{p}_k+\Delta t\,\mathbf{u}_k
-```
-
-代价函数分别惩罚沿路径误差、横向误差、控制量变化和终端误差：
-
-```math
-J=\sum_{k=1}^{N}\left(q_a e_{a,k}^2+q_c e_{c,k}^2+r_v\|\mathbf{u}_k-\mathbf{u}_{ref,k}\|^2+r_{\Delta u}\|\Delta\mathbf{u}_k\|^2\right)+J_N
-```
-
-工程上采用固定规模设计：
-
-- 预测域 `N = 5`，模型步长 `20 ms`。
-- 每次固定进行 5 次投影梯度迭代，无需通用 QP 求解库。
-- 候选速度同时投影到最高速度和最大加速度约束内。
-- 曲率速度剖面提前限制急弯参考速度，弥补短预测域的空间预见距离。
-- `NAV_PATH_TRACKER_MPC_ENABLE` 设为 `0U` 即可恢复原前瞻跟踪器。
-
-## EKF 如何抑制航向漂移
-
-滤波器状态为：
-
-```math
-\mathbf{x}=[\psi,\ \dot{\psi},\ b_g]^T
-```
-
-其中 `yaw` 描述车体航向，`yaw_rate` 描述转动速度，`gyro_bias` 在线估计陀螺零偏。系统使用：
-
-- 四轮速度与舵向解算的角速度作为车辆运动观测。
-- HWT9018 gyro Z 作为快速动态观测。
-- HWT9018 yaw 作为受限、低增益的长期航向锚点。
-- NIS 与硬门限拒绝异常测量，避免单帧跳变直接污染位姿。
-- HWT、EKF、纯陀螺三套影子积分量用于定位误差来源。
-
-## 实车结果
-
-| 测试项目 | 当前结果 |
-| --- | ---: |
-| 横向终点误差 | **≤ 5 cm** |
-| 纵向终点误差 | **≤ 5 cm** |
-| 测试轨迹 | 三次 B 样条心形闭合轨迹 |
-| 车身策略 | 路径过程中保持初始航向，终点独立回正 |
-| 控制器 | 轻量化运动学 MPC，异常时前瞻回退 |
-
-> 以上是当前实车、当前标定和测试场地下获得的结果，不代表所有底盘、速度与地面条件下的理论保证。复现时需要重新校准轮径、舵向零位、IMU 朝向和里程计比例。
-
-## 关键工程能力
-
-- **八电机闭环**：四个 GM6020 转向电机 + 四个 M3508 驱动电机。
-- **双 CAN 总线**：CAN1/CAN2 均以 1 Mbps 工作，分担电机反馈与控制。
-- **转向最短弧**：舵向误差超过 90° 时反转驱动方向，减少转向时间。
-- **对齐保护**：舵轮未对准目标角时主动限制驱动输出。
-- **遥控接管**：检测到人工速度输入后退出自动导航。
-- **安全停车**：IMU 超时、运行超时、非法输出、正常完成分别锁存原因。
-- **可观测调试**：MPC 代价、横向误差、参考速度、求解周期和 EKF 创新量可直接查看。
-
-## 代码入口
-
-| 模块 | 主要内容 |
-| --- | --- |
-| [`path_planner.c`](01_Car_Swerve_Wheels_AutoNavigation/src/path_planner.c) | B 样条、De Boor 计算、弧长 LUT、曲率与进度搜索 |
-| [`navigation.c`](01_Car_Swerve_Wheels_AutoNavigation/src/navigation.c) | MPC、速度包络、路径跟踪、状态机和终点控制 |
-| [`odometry.c`](01_Car_Swerve_Wheels_AutoNavigation/src/odometry.c) | 四舵轮里程计、三状态 yaw EKF、影子积分诊断 |
-| [`chassis.c`](01_Car_Swerve_Wheels_AutoNavigation/src/chassis.c) | 四舵轮逆运动学、舵向滤波、最短弧和对齐保护 |
-| [`hwt9018.c`](01_Car_Swerve_Wheels_AutoNavigation/src/hwt9018.c) | IMU 配置、UART 帧解析、航向零位和陀螺偏置 |
-| [`main.c`](01_Car_Swerve_Wheels_AutoNavigation/src/main.c) | 1 kHz 主循环、双 CAN、自动/手动控制仲裁 |
 
 ## 快速开始
 
 ```bash
 git clone https://github.com/lzy9760/STM32-Project.git
-cd STM32-Project/01_Car_Swerve_Wheels_AutoNavigation/mdk_v5
+cd STM32-Project
+git checkout diansai_2026
+cd 02_Car_Balance_Ball_Control_System/MDK-ARM
 ```
 
-1. 使用 Keil MDK5 打开 `duolun_test.uvprojx`。
-2. 安装 Arm Compiler 5 和 AT32F403A/407 固件库。
-3. 将工程内 AT32 `drivers`、`CMSIS`、startup 的绝对路径改成你的本机位置。
-4. 选择 `template` Target 并 Build。
-5. 下载前核对电机 ID、双 CAN 映射、驱动方向、转向零位、轮径和底盘半径。
+1. 用 Keil MDK 打开 `diansai.uvprojx`。
+2. 选择 Target `diansai`。
+3. 确认当前编译器与芯片设置后执行 Build。
+4. MaixCAM 端打开 `MaixCAM/maixcam_ball.py`，根据实际相机、小球颜色和尺度重新标定。
 
-当前提交使用 Arm Compiler `V5.06 update 5` 验证通过：
+当前分支已使用 **Arm Compiler 5.06 update 5 (build 528)** 完成本地编译检查：
 
 ```text
-0 Error(s), 2 Warning(s)
+Program Size: Code=19158 RO-data=674 RW-data=256 ZI-data=2792
+0 Error(s), 0 Warning(s)
 ```
 
-两条警告来自关闭在线速率标度估计后保留的未使用统计变量，不影响固件链接。
+> 编译通过只能说明源码与工程配置可生成固件，不等于实车已经达到赛题时间和误差指标。
 
-## 当前导航参数
+## 建议调试顺序
 
-| 参数 | 当前值 |
-| --- | ---: |
-| 自动启动延时 | 5000 ms |
-| 路径前向尺度 | 3000 mm |
-| 路径半宽 | 1500 mm |
-| 导航最高速度 | 1500 mm/s |
-| MPC 最大加速度 | 1.2 m/s² |
-| 曲率横向加速度上限 | 800 mm/s² |
-| B 样条弧长 LUT | 128 段 |
+1. **传感器监测**：保持 `BALL_MODE_SENSOR_MONITOR`，先确认角度零点、滤波后角度和 MaixCAM 位置符号。
+2. **开环方向测试**：低频短时驱动步进电机，确认正负方向、使能电平和机械限位。
+3. **角度内环**：断开位置外环，先让平衡杆对小角度阶跃稳定跟踪。
+4. **位置外环**：从中心位置和小幅目标开始，逐步放开角度、频率与积分限幅。
+5. **系统整合**：使静态控球可重复后，再整合底盘运动、加速度前馈和任务状态机。
 
-完整参数、调试变量、回退方法和实车检查流程见 [四舵轮项目技术文档](01_Car_Swerve_Wheels_AutoNavigation/README.md)。
+## 开源与贡献
 
-## 仓库中的其他工程
-
-| 目录 | 内容 |
-| --- | --- |
-| [`00_Car_Mecanum_Wheels_AutoNavigation/`](00_Car_Mecanum_Wheels_AutoNavigation/) | STM32F407 麦克纳姆轮自动导航工程 |
-| [`00_Remote_NRF_Controller/`](00_Remote_NRF_Controller/) | NRF 遥控端工程 |
-| [`00_Firmware_HEX/`](00_Firmware_HEX/) | 已发布固件 |
-| [`docs/mecanum-navigation-technical-report.md`](docs/mecanum-navigation-technical-report.md) | 原麦轮自动导航技术报告 |
-
-## 使用前注意
-
-- 自动导航属于实验性功能，首次运行请架空车轮或设置物理急停，并从低速开始。
-- 不要直接复用本项目的电机方向、舵向零位和坐标符号到另一台底盘。
-- 每次只改变一个参数，并明确区分源码、构建产物、下载固件和实车结果。
-- 仓库未打包第三方 AT32 厂商库；请遵守相关 SDK 与器件包许可。
-- 根目录当前未声明开源许可证，除非另有说明，代码权利仍归原作者所有。
+本分支优先保留可追溯的 CubeMX 工程、STM32 源码与 MaixCAM 脚本，不提交 Keil 中间产物和临时调试文件。欢迎针对循迹鲁棒性、视觉延迟补偿、双环参数整定以及行车—控球联合状态机提交改进。
 
 ---
 
 <div align="center">
 
-<h3>让路径规划不只停留在曲线上，让 MPC 和 EKF 真正跑在轮子上。</h3>
-
-<p>如果这个项目对你的移动机器人、全向底盘或嵌入式控制学习有帮助，欢迎 Star。</p>
+**让小车按路径走，也让小球在运动中站稳。**
 
 </div>
