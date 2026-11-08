@@ -97,34 +97,34 @@ flowchart LR
 
 三相电流由ADC1注入序列获得。启动零偏标定完成后，当前板级换算为：
 
-$$
-i_{a,b,c}=(ADC_{a,b,c}-offset_{a,b,c})\cdot0.0403\quad[\mathrm A]
-$$
+```math
+i_{a,b,c}=(ADC_{a,b,c}-offset_{a,b,c})\cdot0.0403\quad[\mathrm{A}]
+```
 
 Clarke变换采用两相表达，第三相保留作诊断：
 
-$$
+```math
 i_\alpha=i_a,\qquad i_\beta=\frac{i_a+2i_b}{\sqrt3}
-$$
+```
 
-$$
+```math
 i_d=i_\alpha\cos\theta_e+i_\beta\sin\theta_e,\qquad
 i_q=-i_\alpha\sin\theta_e+i_\beta\cos\theta_e
-$$
+```
 
 电角度来自原始有效机械角度，而非观测器平滑后的角度：
 
-$$
-\theta_e=\operatorname{wrap}_{2\pi}\!\left[d\,p\,(\theta_m-\theta_{offset})\right]
-$$
+```math
+\theta_e=\mathrm{wrap}_{2\pi}\!\left[d\,p\,(\theta_m-\theta_{offset})\right]
+```
 
 其中方向`d=foc_dir`，极对数`p=foc_pp`。当前配置为XC5000 KV380、7极对、编码器直连。
 
 两轴PI输出经过统一电压矢量约束，保持方向并按比例缩放：
 
-$$
+```math
 \sqrt{u_d^2+u_q^2}\le U_{max}
-$$
+```
 
 试运行模式按最终受限电压回算对应积分状态，减少电流环在电压天花板后继续积累。该处理与速度环的积分限幅不同，不能将各层级视作同一个完整抗饱和器。
 
@@ -136,19 +136,19 @@ $$
 
 每次有效更新计算：
 
-$$
-\theta_{pred}=\hat\theta+\hat\omega\Delta t,\qquad
-e=\operatorname{wrap}_{\pm\pi}(\theta_m-\theta_{pred})
-$$
+```math
+\theta_{pred}=\hat{\theta}+\hat{\omega}\Delta t,\qquad
+e=\mathrm{wrap}_{\pm\pi}(\theta_m-\theta_{pred})
+```
 
-$$
+```math
 q=e^{-2\pi f_n\Delta t}
-$$
+```
 
-$$
-\hat\omega\leftarrow\hat\omega+\frac{(1-q)^2}{\Delta t}e,\qquad
-\hat\theta\leftarrow\operatorname{wrap}_{2\pi}\!\left[\theta_{pred}+(1-q^2)e\right]
-$$
+```math
+\hat{\omega}\leftarrow\hat{\omega}+\frac{(1-q)^2}{\Delta t}e,\qquad
+\hat{\theta}\leftarrow\mathrm{wrap}_{2\pi}\!\left[\theta_{pred}+(1-q^2)e\right]
+```
 
 离散误差系统具有两个相同极点`q`；小dt极限对应临界阻尼跟踪模型。当前自然频率`f_n=60 Hz`，不代表60 Hz的−3 dB带宽。速度环使用速度状态输出，没有再串联原有一阶低通。
 
@@ -163,23 +163,23 @@ $$
 
 位置反馈使用连续机械角度增量，不把累计位置折回单圈：
 
-$$
-\Delta\theta_k=\operatorname{wrap}_{\pm180^\circ}(\theta_k-\theta_{k-1}),\qquad
+```math
+\Delta\theta_k=\mathrm{wrap}_{\pm180^\circ}(\theta_k-\theta_{k-1}),\qquad
 \Theta_k=\Theta_{k-1}+d\,\Delta\theta_k
-$$
+```
 
 内部用double累计，外部提供float总角度和圈数接口。359°→1°累计+2°，1°→359°累计−2°。首次有效样本建立相对零点，复位后重新计数。
 
-$$
+```math
 N=\frac{\Theta}{360^\circ},\qquad e_\theta=2\pi(N_{target}-N)
-$$
+```
 
 位置PD输出机械速度参考：
 
-$$
-\omega_{ref}=\operatorname{sat}\left(K_{p,pos}e_\theta-K_{d,pos}\hat\omega,
+```math
+\omega_{ref}=\mathrm{sat}\left(K_{p,pos}e_\theta-K_{d,pos}\hat{\omega},
 -\omega_{max},+\omega_{max}\right)
-$$
+```
 
 阻尼项使用已有观测速度，没有再次差分位置误差。这里的Kd是速度参考层的阻尼系数，并非直接输出转矩的PID微分增益。
 
@@ -191,9 +191,9 @@ $$
 
 dq电压经逆Park、逆Clarke得到三相参考后，计算：
 
-$$
+```math
 u_0=-\frac{\max(u_a,u_b,u_c)+\min(u_a,u_b,u_c)}{2}
-$$
+```
 
 三相统一叠加零序分量，再转换为CCR1～CCR3。该方法与扇区作用时间法具有对应关系，源码无需逐扇区计算正弦作用时间。
 
@@ -203,10 +203,10 @@ $$
 
 对齐模块适配VESC的编码器检测思路，以受控电流建立定子磁场，通过方向/比例检查和正反扫描形成候选offset。扫描误差采用圆周平均，避免0°/360°附近普通算术平均失效：
 
-$$
-\bar\delta=\operatorname{atan2}\left(\sum\sin\delta_k,\sum\cos\delta_k\right),\qquad
+```math
+\bar{\delta}=\mathrm{atan2}\left(\sum\sin\delta_k,\sum\cos\delta_k\right),\qquad
 R=\frac{\sqrt{(\sum\sin\delta_k)^2+(\sum\cos\delta_k)^2}}{n}
-$$
+```
 
 候选值随后经过0°→120°→240°→360°→240°→120°→0°核验。验证和保存门控通过后，才允许提交带CRC的Flash记录。
 
