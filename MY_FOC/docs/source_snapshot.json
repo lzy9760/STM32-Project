@@ -1,0 +1,24 @@
+{
+  "snapshot_date": "2026-11-08",
+  "core_sha256": {
+    "Core/Inc/debug.h": "f2610700be7cdc9485fe69288ee47ed4d950b861f9f86ec2f61e0ed3c9d1a14c",
+    "Core/Inc/drv8323.h": "d51163d183c791fd370d4a87eae6725c25cd567edae45a2bd49b5c2abb78c772",
+    "Core/Inc/encoder.h": "089500ce200005bbeecaae3ba3a80946a5198cd99c38021a43786c5bb4f625c0",
+    "Core/Inc/foc.h": "71940b001165481b57de168a1cfcbded28015437ce66198a90a0c3082460defb",
+    "Core/Inc/main.h": "e7eee9caeea12543d1e3ef26a28c1b8d2628b2650ccb6918ab2e1942262afef4",
+    "Core/Inc/motor1_drive.h": "2a6a0ffe3823b597b47a181bac1a3c6f4faa16e4f8f39b6b61084219b92a3cf2",
+    "Core/Inc/stm32f4xx_hal_conf.h": "b7a0536393e1167cead6fbd058c11eb6cd729fd0d7f60683d6efbd8fee1c40f5",
+    "Core/Inc/stm32f4xx_it.h": "d8d81b4f49e3dc7f7b1205691f91a3812fd8edc6ba7616bce85101e9ef7a8463",
+    "Core/Src/debug.c": "ebb263a2d37d17cd39a7c58fa5b56f402c72c70f2fb07c8c36394f0b143a061d",
+    "Core/Src/drv8323.c": "32b7b522f9ce45c50c4a3c60ff2eda033f5c4956cd95f6488f09b858bc6a9510",
+    "Core/Src/encoder.c": "81839935a8cd55c3f8bfce3b665ec708aadc60d2bc260f01cc215d60f3c2e120",
+    "Core/Src/foc.c": "8e639ba4632b2af30738f460f04cda5f01800a7c82663962b25cad1c04e1e852",
+    "Core/Src/main.c": "8c48b5376832a15129c6a815d29d305f8123d33b5947e801207eb5577b0aaf73",
+    "Core/Src/motor1_drive.c": "6b927671b85adf645ab26c7d3e608998cd3d7109f8b7ae189e33f4393c707ed7",
+    "Core/Src/stm32f4xx_hal_msp.c": "3a73b378e7b7390eaaed7f610a5f0af2a940d2a8bd98fe70db5b32f5bebc4659",
+    "Core/Src/stm32f4xx_it.c": "39a1d1d6a770aaeb34d7f16a1e764df939aa03f3804f5b471286159b8bbdf9dc",
+    "Core/Src/system_stm32f4xx.c": "a31929eab936ac98db060c18917118acf79dc96e1f03ed4b57d614535dd06d70"
+  },
+  "firmware_sources_copied_without_modification": true,
+  "excluded": "Local debug captures, RAM/Flash dumps, backups, IDE state and compiled outputs"
+}

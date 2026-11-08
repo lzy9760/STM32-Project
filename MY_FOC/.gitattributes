@@ -1,0 +1,9 @@
+# Preserve imported firmware source bytes, including their original line endings.
+Core/** -text
+Drivers/** -text
+USB_Device/** -text
+MDK-ARM/** -text
+XC5000_FOC.ioc -text
+*.md text eol=lf
+tests/** text eol=lf
+docs/*.json text eol=lf

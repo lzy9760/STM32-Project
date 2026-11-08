@@ -1,280 +1,356 @@
 <div align="center">
 
-<h1>AT32 四舵轮自主导航系统</h1>
+# MY_FOC · 有感FOC与多圈伺服控制
 
-<h3>B-Spline × MPC × EKF</h3>
+**ADC同步电流闭环 × 角度跟踪速度观测器 × 增量式多圈位置反馈**
 
-<p>一套真正运行在实车上的路径生成、预测控制、轮惯融合与八电机闭环方案</p>
+![MCU](https://img.shields.io/badge/MCU-STM32F405RG-03234B?style=flat-square)
+![Control](https://img.shields.io/badge/CONTROL-Position_PD_%2F_Speed_PI_%2F_Current_PI-00796B?style=flat-square)
+![Encoder](https://img.shields.io/badge/ENCODER-AS5047P_SPI-546E7A?style=flat-square)
+![Toolchain](https://img.shields.io/badge/TOOLCHAIN-Keil_MDK5-3949AB?style=flat-square)
 
-<p>
-  <img alt="MCU" src="https://img.shields.io/badge/AT32F403A-240%20MHz-1677FF?style=for-the-badge" />
-  <img alt="Chassis" src="https://img.shields.io/badge/CHASSIS-4--SWERVE-00A896?style=for-the-badge" />
-  <img alt="Language" src="https://img.shields.io/badge/LANGUAGE-C-A8B9CC?style=for-the-badge&logo=c&logoColor=white" />
-  <img alt="Toolchain" src="https://img.shields.io/badge/TOOLCHAIN-KEIL%20MDK5-6C4AB6?style=for-the-badge" />
-</p>
+基于STM32F405、DRV8323和磁编码器的PMSM/BLDC有感控制实验工程。
 
-<table>
-  <tr>
-    <td align="center"><strong>≤ 5 cm</strong><br/>横向终点误差</td>
-    <td align="center"><strong>≤ 5 cm</strong><br/>纵向终点误差</td>
-    <td align="center"><strong>20 ms</strong><br/>MPC 求解周期</td>
-    <td align="center"><strong>1 kHz</strong><br/>底盘控制节拍</td>
-  </tr>
-</table>
-
-<p>
-  <img width="100%" alt="B-Spline、MPC 与 EKF 四舵轮自主导航算法栈" src="docs/images/swerve_navigation_stack.svg" />
-</p>
-
-<p>
-  <a href="#三大核心算法">核心算法</a> ·
-  <a href="#完整控制闭环">系统架构</a> ·
-  <a href="#实车结果">实车结果</a> ·
-  <a href="#快速开始">快速开始</a> ·
-  <a href="01_Car_Swerve_Wheels_AutoNavigation/README.md">完整技术文档</a>
-</p>
+[算法架构](#算法架构) · [核心算法](#核心算法) · [参数配置](#参数配置) · [编译运行](#编译运行) · [测试与状态](#测试与状态) · [来源与许可](#来源与许可)
 
 </div>
 
----
+## 项目定位
 
-## 项目简介
+MY_FOC面向从电流控制到位置伺服的完整嵌入式实现：在STM32F405上完成三相电流采集、坐标变换、dq电流PI、SVPWM、编码器速度估计和相对多圈位置控制，并提供标定、Flash记录及故障诊断通路。
 
-这不是只在 MATLAB 中绘制理想曲线的算法 Demo，而是一套落到 AT32F403A 和四舵轮实车上的完整导航控制链：
+本项目的实现重点是**控制链与采样时序的一致性、角度差分噪声与反馈延迟之间的取舍，以及多圈机械位置的连续表达**。源码可直接定位算法入口，外设初始化、控制计算和调试传输各自有明确的执行路径。
 
 ```text
-三次 B 样条生成轨迹
+相对多圈位置目标
         ↓
-曲率限速与前瞻制动
+位置PD → 有限幅的机械速度目标
         ↓
-轻量化运动学 MPC 预测控制
+速度PI → 有限幅的Iq目标
         ↓
-EKF 融合轮速、陀螺与航向角
+ADC同步dq电流PI → 电压矢量限幅
         ↓
-四舵轮逆运动学与八电机 PID
-        ↓
-双 CAN 驱动 GM6020 + M3508
+逆Park / 逆Clarke → 零序注入SVPWM → 三相互补PWM
 ```
 
-当前版本已经完成心形闭合轨迹实车测试。在当前底盘、地面和标定参数下，横向与纵向终点误差均可控制在 **5 cm 以内**。
+> **默认配置会运动。** 当前源码允许上电进入闭环，并请求相对启动位置正转8圈，速度上限50 rad/s。首次移植应先在`motor1_drive.h`中关闭`FOC_ENABLE_POWER_ON_MOTION`，核对采样、相序、驱动及编码器配置。仓库保留当前调试参数，没有为发布而静默修改电机行为。
 
-## 三大核心算法
+## 实现特点
 
-<table>
-  <tr>
-    <td width="33%" valign="top">
-      <h3>① Cubic B-Spline</h3>
-      <p><strong>连续、平滑、可按弧长采样</strong></p>
-      <p>9 个控制点构造心形闭合轨迹，128 段 LUT 建立参数与路径距离映射，同时输出位置、切向量和曲率。</p>
-      <p><code>path_planner.c</code></p>
-    </td>
-    <td width="33%" valign="top">
-      <h3>② Embedded MPC</h3>
-      <p><strong>提前看见误差，而不是事后追赶</strong></p>
-      <p>二维运动学模型、5 步预测域、投影梯度迭代，并显式限制速度和加速度；求解失败可自动回退。</p>
-      <p><code>navigation.c</code></p>
-    </td>
-    <td width="33%" valign="top">
-      <h3>③ Yaw EKF</h3>
-      <p><strong>让轮速和 IMU 各自做擅长的事</strong></p>
-      <p>融合轮速角速度、HWT9018 gyro Z 与低增益 yaw 锚定，联合估计航向、角速度和陀螺零偏。</p>
-      <p><code>odometry.c</code></p>
-    </td>
-  </tr>
-</table>
+| 模块 | 本项目的具体实现 |
+|---|---|
+| 电流闭环 | TIM1_CC4触发ADC注入序列，电流环在转换完成回调中执行 |
+| 速度反馈 | 机械角度预测/校正跟踪环，按实际dt更新，速度状态供速度PI使用 |
+| 多圈位置 | 对跨零修正后的机械角度增量作有符号累计，内部double、外部float观测接口 |
+| 位置调节 | 位置误差输出速度参考，叠加基于观测速度的阻尼，限幅后进入速度PI |
+| 电压饱和处理 | dq电压矢量限幅，试运行模式下回算电流PI积分状态 |
+| 对齐标定 | 非阻塞正反扫描、方向/极对数检查、圆周平均候选offset和七点核验 |
+| 标定保存 | 32字节记录、CRC32、配置/已验证标志、提交字最后写入、保存后回读 |
+| 诊断 | USB CDC十通道JustFloat、周期统计、首故障锁存和DRV8323故障快照 |
 
-## 完整控制闭环
+FOC、PI/PD、SVPWM和角度跟踪环均是成熟控制方法。这里突出本工程的离散实现与系统集成；参考来源和第三方代码不声明为项目原创。
+
+## 算法架构
 
 ```mermaid
 flowchart LR
-    subgraph Planning[路径与速度规划]
-        CP[9 个控制点] --> BS[B-Spline]
-        BS --> LUT[弧长 LUT]
-        LUT --> CURV[曲率限速]
-        CURV --> BRAKE[反向制动包络]
-    end
-
-    subgraph Localization[轮惯融合定位]
-        WHEEL[四轮速度与舵向] --> EKF[Yaw EKF]
-        GYRO[HWT9018 Gyro Z] --> EKF
-        YAW[HWT9018 Yaw] --> EKF
-        EKF --> POSE[x / y / yaw]
-    end
-
-    subgraph Control[预测控制]
-        BRAKE --> MPC[轻量化 MPC]
-        POSE --> MPC
-        MPC --> W2B[世界坐标 → 车体坐标]
-    end
-
-    subgraph Chassis[四舵轮执行]
-        W2B --> IK[四舵轮逆运动学]
-        IK --> ARC[最短弧优化]
-        ARC --> SAFE[舵向对齐保护]
-        SAFE --> PID[转向级联 PID + 驱动速度 PID]
-        PID --> CAN[CAN1 / CAN2]
-        CAN --> MOTOR[4 × GM6020 + 4 × M3508]
-    end
-
-    MOTOR --> WHEEL
+    REF["目标圈数 foc_mutipos_turn"] --> POS["位置PD"]
+    ENC["AS5047P / SPI"] --> ANG["有效机械角度"]
+    ANG --> SUM["跨零增量累计"]
+    SUM --> POS
+    ANG --> OBS["角度跟踪速度观测器"]
+    OBS --> POS
+    POS --> VLIM["速度参考限幅"]
+    VLIM --> VPI["速度PI"]
+    OBS --> VPI
+    VPI --> ILIM["Iq参考限幅"]
+    ILIM --> CPI["dq电流PI"]
+    ADC["ADC1注入采样 Ia / Ib / Ic"] --> PARK["Clarke / Park"]
+    ANG --> ELEC["方向 × 极对数 × 机械角差"]
+    ELEC --> PARK
+    PARK --> CPI
+    CPI --> ULIM["dq矢量限幅 / 积分回算"]
+    ULIM --> IPARK["逆Park / 逆Clarke"]
+    ELEC --> IPARK
+    IPARK --> SVM["min-max零序注入SVPWM"]
+    SVM --> PWM["TIM1三相互补PWM"]
+    PWM --> MOTOR["电机 / 功率级"]
+    MOTOR --> ENC
+    MOTOR --> ADC
 ```
 
-## 为什么选择 B 样条
+### 执行周期与职责
 
-相比直接连接离散航点，三次 B 样条能够在控制点之间生成连续曲线，并保持较好的局部可调性。代码使用夹持节点向量和 De Boor 递推计算路径：
+| 执行层 | 周期/触发方式 | 职责 |
+|---|---|---|
+| 电流环 | 名义20 kHz，ADC转换完成回调 | dq变换、电流PI、电压限幅、PWM更新、快速电流保护 |
+| 速度观测器 | 前台约1 ms，新角度且满足最小间隔后执行 | 时间戳、角度预测/校正、速度估计 |
+| 位置环与速度环 | 前台约2 ms，位置环先于速度环 | 位置累计、速度目标、Iq目标 |
+| USB发送 | 前台服务 | 批量发送已采集的诊断帧 |
+| 对齐状态机 | 前台推进，电流调节由ADC回调执行 | 电流渐增、扫描、核验和保存门控 |
 
-```math
-\mathbf{C}(u)=\sum_{i=0}^{n}N_{i,3}(u)\mathbf{P}_i
+约1 ms/2 ms是软件调度条件，不是RTOS硬实时保证。观测器使用DWT实测dt；运行电流PI与速度PI的Ki按每次调用累加，改变周期时应重新理解等效积分强度。
+
+## 核心算法
+
+### 1. ADC同步dq电流闭环
+
+三相电流由ADC1注入序列获得。启动零偏标定完成后，当前板级换算为：
+
+$$
+i_{a,b,c}=(ADC_{a,b,c}-offset_{a,b,c})\cdot0.0403\quad[\mathrm A]
+$$
+
+Clarke变换采用两相表达，第三相保留作诊断：
+
+$$
+i_\alpha=i_a,\qquad i_\beta=\frac{i_a+2i_b}{\sqrt3}
+$$
+
+$$
+i_d=i_\alpha\cos\theta_e+i_\beta\sin\theta_e,\qquad
+i_q=-i_\alpha\sin\theta_e+i_\beta\cos\theta_e
+$$
+
+电角度来自原始有效机械角度，而非观测器平滑后的角度：
+
+$$
+\theta_e=\operatorname{wrap}_{2\pi}\!\left[d\,p\,(\theta_m-\theta_{offset})\right]
+$$
+
+其中方向`d=foc_dir`，极对数`p=foc_pp`。当前配置为XC5000 KV380、7极对、编码器直连。
+
+两轴PI输出经过统一电压矢量约束，保持方向并按比例缩放：
+
+$$
+\sqrt{u_d^2+u_q^2}\le U_{max}
+$$
+
+试运行模式按最终受限电压回算对应积分状态，减少电流环在电压天花板后继续积累。该处理与速度环的积分限幅不同，不能将各层级视作同一个完整抗饱和器。
+
+**入口：** [`foc_curr_loop_nb()`](MY_FOC/Core/Src/foc.c)、[`HAL_ADCEx_InjectedConvCpltCallback()`](MY_FOC/Core/Src/main.c)。
+
+### 2. 预测/校正式速度观测器
+
+对相邻角度直接差分可得到速度，但角度噪声也会被除以短dt；增加低通滤波又会引入反馈延迟。本工程根据Microchip MCAF角度跟踪环方程，以角度、速度两个状态完成离散预测/校正。
+
+每次有效更新计算：
+
+$$
+\theta_{pred}=\hat\theta+\hat\omega\Delta t,\qquad
+e=\operatorname{wrap}_{\pm\pi}(\theta_m-\theta_{pred})
+$$
+
+$$
+q=e^{-2\pi f_n\Delta t}
+$$
+
+$$
+\hat\omega\leftarrow\hat\omega+\frac{(1-q)^2}{\Delta t}e,\qquad
+\hat\theta\leftarrow\operatorname{wrap}_{2\pi}\!\left[\theta_{pred}+(1-q^2)e\right]
+$$
+
+离散误差系统具有两个相同极点`q`；小dt极限对应临界阻尼跟踪模型。当前自然频率`f_n=60 Hz`，不代表60 Hz的−3 dB带宽。速度环使用速度状态输出，没有再串联原有一阶低通。
+
+- 用`enc_valid_count`排除重复样本，按实际DWT间隔约1 ms更新。
+- 长间隔超过20 ms时重新初始化，避免调试暂停后产生速度尖峰。
+- 保留原始差分速度、角度残差和实际dt供对照。
+- 观测器具有有限相位延迟；速度曲线变平滑不能单独证明机械速度更平稳。
+
+**入口：** [`foc_update_speed()`](MY_FOC/Core/Src/foc.c)。
+
+### 3. 增量式多圈机械位置
+
+位置反馈使用连续机械角度增量，不把累计位置折回单圈：
+
+$$
+\Delta\theta_k=\operatorname{wrap}_{\pm180^\circ}(\theta_k-\theta_{k-1}),\qquad
+\Theta_k=\Theta_{k-1}+d\,\Delta\theta_k
+$$
+
+内部用double累计，外部提供float总角度和圈数接口。359°→1°累计+2°，1°→359°累计−2°。首次有效样本建立相对零点，复位后重新计数。
+
+$$
+N=\frac{\Theta}{360^\circ},\qquad e_\theta=2\pi(N_{target}-N)
+$$
+
+位置PD输出机械速度参考：
+
+$$
+\omega_{ref}=\operatorname{sat}\left(K_{p,pos}e_\theta-K_{d,pos}\hat\omega,
+-\omega_{max},+\omega_{max}\right)
+$$
+
+阻尼项使用已有观测速度，没有再次差分位置误差。这里的Kd是速度参考层的阻尼系数，并非直接输出转矩的PID微分增益。
+
+目标2圈对应720°，8圈对应2880°。支持正反方向及小数圈，完成后继续闭环保持；原有运行超时保护仍有效。软件多圈状态不持久化，不能恢复断电期间运动。
+
+**入口：** [`foc_pos_loop_nb()`](MY_FOC/Core/Src/foc.c)。
+
+### 4. min-max零序注入SVPWM
+
+dq电压经逆Park、逆Clarke得到三相参考后，计算：
+
+$$
+u_0=-\frac{\max(u_a,u_b,u_c)+\min(u_a,u_b,u_c)}{2}
+$$
+
+三相统一叠加零序分量，再转换为CCR1～CCR3。该方法与扇区作用时间法具有对应关系，源码无需逐扇区计算正弦作用时间。
+
+当前占空比换算使用固定24 V母线标度和4200计数跨度。它是本板配置，不包含实时母线电压补偿，移植时需要核对。
+
+### 5. 双向对齐与可信标定记录
+
+对齐模块适配VESC的编码器检测思路，以受控电流建立定子磁场，通过方向/比例检查和正反扫描形成候选offset。扫描误差采用圆周平均，避免0°/360°附近普通算术平均失效：
+
+$$
+\bar\delta=\operatorname{atan2}\left(\sum\sin\delta_k,\sum\cos\delta_k\right),\qquad
+R=\frac{\sqrt{(\sum\sin\delta_k)^2+(\sum\cos\delta_k)^2}}{n}
+$$
+
+候选值随后经过0°→120°→240°→360°→240°→120°→0°核验。验证和保存门控通过后，才允许提交带CRC的Flash记录。
+
+**默认走候选offset试运行路径，跳过扫描、Flash加载与保存。** 代码具备保存能力，不等于当前上电已经完成可信自动标定。
+
+**入口：** [`motor1_drive.c`](MY_FOC/Core/Src/motor1_drive.c)，流程与Flash格式见[接入文档](MY_FOC/docs/bringup.md)。
+
+## 参数配置
+
+以下为2026-11-08上传的源码快照值，供复现当前状态，不是其它电机的推荐整定参数。
+
+| 参数 | 当前值 | 修改位置 |
+|---|---:|---|
+| 相对目标圈数`foc_mutipos_turn` | 8.0 | `Core/Src/foc.c` |
+| 位置Kp / Kd | 20.0 / 0.4 | `Core/Src/foc.c` |
+| 速度PI Kp / 每次调用Ki | 0.28 / 0.006 | `Core/Src/foc.c` |
+| Id、Iq PI Kp / 每次调用Ki | 0.1 / 0.003 | `Core/Src/foc.c` |
+| 观测器自然频率`FOC_SPEED_HZ` | 60 Hz | `Core/Src/foc.c` |
+| 速度参考上限 | 50 rad/s | `Core/Inc/motor1_drive.h` |
+| 速度环Iq输出限幅 | ±3 A | 同上 |
+| 运行电压矢量限幅 | 2 V | 同上；启动检查也限制不超过2 V |
+| 候选机械offset | 4.72575378° | 同上，仅适用于当前安装 |
+| 极对数 / 编码器方向 | 7 / +1 | `foc.c`与`motor1_drive.h` |
+
+```c
+// 相对启动零点：正转两圈、反转两圈、正转四分之一圈
+#define foc_mutipos_turn  2.0f
+// #define foc_mutipos_turn -2.0f
+// #define foc_mutipos_turn  0.25f
 ```
 
-初始化阶段完成三件事：
+若需肉眼核实8圈，可单独将速度上限降为`6.283185f` rad/s，约1圈/秒。比较前后效果时保持其他参数一致。
 
-1. 将归一化控制点按路径长度、宽度和起始航向变换到世界坐标。
-2. 建立 128 段弧长查找表，使控制器可以按“走了多少毫米”采样路径。
-3. 通过邻域切向量估计曲率，为高速转弯前的速度规划提供依据。
-
-当前心形轨迹的控制点模板：
-
-```text
-Start ──╮      ╭── Right lobe
-        ╰╮    ╭╯
-         ╲╲  ╱╱
-          ╲╲╱╱
-           ╲╱       ← heart tip
-           ╱╲
-          ╱  ╲
-         ╰────╯      ← closed path returns to Start
-```
-
-## MPC 如何在 MCU 上运行
-
-MPC 使用世界坐标中的二维位置作为预测状态，二维平移速度作为控制输入：
-
-```math
-\mathbf{p}_{k+1}=\mathbf{p}_k+\Delta t\,\mathbf{u}_k
-```
-
-代价函数分别惩罚沿路径误差、横向误差、控制量变化和终端误差：
-
-```math
-J=\sum_{k=1}^{N}\left(q_a e_{a,k}^2+q_c e_{c,k}^2+r_v\|\mathbf{u}_k-\mathbf{u}_{ref,k}\|^2+r_{\Delta u}\|\Delta\mathbf{u}_k\|^2\right)+J_N
-```
-
-工程上采用固定规模设计：
-
-- 预测域 `N = 5`，模型步长 `20 ms`。
-- 每次固定进行 5 次投影梯度迭代，无需通用 QP 求解库。
-- 候选速度同时投影到最高速度和最大加速度约束内。
-- 曲率速度剖面提前限制急弯参考速度，弥补短预测域的空间预见距离。
-- `NAV_PATH_TRACKER_MPC_ENABLE` 设为 `0U` 即可恢复原前瞻跟踪器。
-
-## EKF 如何抑制航向漂移
-
-滤波器状态为：
-
-```math
-\mathbf{x}=[\psi,\ \dot{\psi},\ b_g]^T
-```
-
-其中 `yaw` 描述车体航向，`yaw_rate` 描述转动速度，`gyro_bias` 在线估计陀螺零偏。系统使用：
-
-- 四轮速度与舵向解算的角速度作为车辆运动观测。
-- HWT9018 gyro Z 作为快速动态观测。
-- HWT9018 yaw 作为受限、低增益的长期航向锚点。
-- NIS 与硬门限拒绝异常测量，避免单帧跳变直接污染位姿。
-- HWT、EKF、纯陀螺三套影子积分量用于定位误差来源。
-
-## 实车结果
-
-| 测试项目 | 当前结果 |
-| --- | ---: |
-| 横向终点误差 | **≤ 5 cm** |
-| 纵向终点误差 | **≤ 5 cm** |
-| 测试轨迹 | 三次 B 样条心形闭合轨迹 |
-| 车身策略 | 路径过程中保持初始航向，终点独立回正 |
-| 控制器 | 轻量化运动学 MPC，异常时前瞻回退 |
-
-> 以上是当前实车、当前标定和测试场地下获得的结果，不代表所有底盘、速度与地面条件下的理论保证。复现时需要重新校准轮径、舵向零位、IMU 朝向和里程计比例。
-
-## 关键工程能力
-
-- **八电机闭环**：四个 GM6020 转向电机 + 四个 M3508 驱动电机。
-- **双 CAN 总线**：CAN1/CAN2 均以 1 Mbps 工作，分担电机反馈与控制。
-- **转向最短弧**：舵向误差超过 90° 时反转驱动方向，减少转向时间。
-- **对齐保护**：舵轮未对准目标角时主动限制驱动输出。
-- **遥控接管**：检测到人工速度输入后退出自动导航。
-- **安全停车**：IMU 超时、运行超时、非法输出、正常完成分别锁存原因。
-- **可观测调试**：MPC 代价、横向误差、参考速度、求解周期和 EKF 创新量可直接查看。
-
-## 代码入口
-
-| 模块 | 主要内容 |
-| --- | --- |
-| [`path_planner.c`](01_Car_Swerve_Wheels_AutoNavigation/src/path_planner.c) | B 样条、De Boor 计算、弧长 LUT、曲率与进度搜索 |
-| [`navigation.c`](01_Car_Swerve_Wheels_AutoNavigation/src/navigation.c) | MPC、速度包络、路径跟踪、状态机和终点控制 |
-| [`odometry.c`](01_Car_Swerve_Wheels_AutoNavigation/src/odometry.c) | 四舵轮里程计、三状态 yaw EKF、影子积分诊断 |
-| [`chassis.c`](01_Car_Swerve_Wheels_AutoNavigation/src/chassis.c) | 四舵轮逆运动学、舵向滤波、最短弧和对齐保护 |
-| [`hwt9018.c`](01_Car_Swerve_Wheels_AutoNavigation/src/hwt9018.c) | IMU 配置、UART 帧解析、航向零位和陀螺偏置 |
-| [`main.c`](01_Car_Swerve_Wheels_AutoNavigation/src/main.c) | 1 kHz 主循环、双 CAN、自动/手动控制仲裁 |
-
-## 快速开始
+## 编译运行
 
 ```bash
-git clone https://github.com/lzy9760/STM32-Project.git
-cd STM32-Project/01_Car_Swerve_Wheels_AutoNavigation/mdk_v5
+git clone --branch MY_FOC --single-branch https://github.com/lzy9760/STM32-Project.git
+cd STM32-Project/MY_FOC
 ```
 
-1. 使用 Keil MDK5 打开 `duolun_test.uvprojx`。
-2. 安装 Arm Compiler 5 和 AT32F403A/407 固件库。
-3. 将工程内 AT32 `drivers`、`CMSIS`、startup 的绝对路径改成你的本机位置。
-4. 选择 `template` Target 并 Build。
-5. 下载前核对电机 ID、双 CAN 映射、驱动方向、转向零位、轮径和底盘半径。
+1. 使用Keil MDK5打开`MDK-ARM/XC5000_FOC.uvprojx`，选择`XC5000_FOC` Target。
+2. 安装Arm Compiler 5；原工程使用V5.06 update 5。器件为STM32F405RGTx，需要对应STM32F4器件支持包。
+3. 核对引脚和自己的电调，先关闭上电运动，再检查采样零偏、相序、方向和驱动状态。
+4. 编译后核对程序Flash范围，保留sector 11标定区；重新标定安装相关offset。
+5. 开启运动前确认目标及速度、电流、电压限幅。观察首故障值，避免将停机后的状态误认为首次停机原因。
 
-当前提交使用 Arm Compiler `V5.06 update 5` 验证通过：
+仓库包含本工程使用的HAL、CMSIS头文件、USB Device Library和启动文件；省略未使用的CMSIS DSP/文档、历史备份、RAM/Flash转储、个人IDE状态和生成的AXF/HEX。当前CubeMX工程含手工扩展的调度与保护逻辑，重新生成前应检查差异。
+
+## 测试与状态
+
+### 可复现主机测试
+
+安装Python 3和GCC后，在`MY_FOC/`目录运行：
+
+```bash
+python tests/run_host_tests.py
+```
+
+测试编译当前`foc.c`，外设寄存器由主机桩替代，不连接ST-Link、不复位、不运行电机。覆盖：
+
+- 正反方向、跨零、重复/无效样本、实际dt及计时器回绕。
+- 观测器对模拟角度噪声、加速及5/10/20 Hz速度变化的响应。
+- 多圈、小数圈、角度增量累计、360°/720°及复位零点。
+- 速度限幅、停机抢占、位置先于速度的2 ms调用顺序。
+- 37个Keil源文件路径和17个Core源码快照哈希。
+
+固定1 ms采样的合成输入下，当前60 Hz观测器结果为：
+
+| 速度变化频率 | 等效相位延迟 | 幅值比 |
+|---|---:|---:|
+| 5 Hz | 约4.86 ms | 约0.993 |
+| 10 Hz | 约4.82 ms | 约0.973 |
+| 20 Hz | 约4.68 ms | 约0.901 |
+
+这是指定输入下的软件测试，不包含实际SPI采样年龄、前台调度抖动、内环动态和负载变化。完整输出由脚本生成到被Git忽略的`tests/.build/`。
+
+### 台架观察与验证边界
+
+| 内容 | 当前状态 |
+|---|---|
+| Keil构建 | 本地已有0 Error / 0 Warning记录；本次上传整理未重新烧录 |
+| 速度反馈处理 | 台架反馈表明，旁路强低通并加入跟踪观测器后，卡滞和速度波动有所改善 |
+| 位置阻尼 | 台架反馈表明加入速度阻尼后，到位摆动减轻 |
+| 减速末段 | 仍可能有轻微卡滞，摩擦、齿槽扰动和控制指令之间的影响尚未完全分离 |
+| 8圈累计 | 用户观察到编码器累计反馈2880°；独立机械标记计圈仍需完成 |
+| 机械误差小于0.5° | 调试目标，尚无独立验收数据，不作为性能保证 |
+| 跨电机/跨电调移植 | 尚未验证，不能直接复用offset、采样增益及控制参数 |
+
+## 遥测与调试
+
+USB CDC使用十通道JustFloat协议，名义采样率5 kHz。当前CH3～CH5为诊断映射，非PWM占空比：
+
+| 通道 | 数据 | 单位 |
+|---|---|---|
+| CH0 / CH1 / CH2 | Ia / Ib / Ic | A |
+| CH3 | 编码器机械角度 | deg |
+| CH4 | 原始差分速度 | rad/s |
+| CH5 | dq输出电压幅值 | V |
+| CH6 / CH7 | 目标机械速度 / 观测机械速度 | rad/s |
+| CH8 / CH9 | 目标Iq / 实际Iq | A |
+
+Watch常用变量：
 
 ```text
-0 Error(s), 2 Warning(s)
+foc_pos_deg / foc_pos_turn / foc_target_pos_turn / foc_pos_error_turn
+foc_speed_rad_s / foc_speed_raw_rad_s / foc_speed_error_deg / foc_speed_dt_s
+foc_target_iq / foc_iq / foc_ud / foc_uq
+foc_current_loop_count / foc_current_loop_period_cycles / foc_current_loop_max_cycles
+motor_safety_fault / motorVars_M1.faultMtrNow
+enc_valid_count / enc_spi_fail / enc_parity_fail / enc_glitch_count
+debug_sample_hz / debug_dropped / debug_skipped
 ```
 
-两条警告来自关闭在线速率标度估计后保留的未使用统计变量，不影响固件链接。
+多圈控制使用累计机械角度，电流环使用电角度，两者不能混用。读取旧值也不能证明采样仍在更新；DWT依赖和故障号说明见[接入与诊断文档](MY_FOC/docs/bringup.md)。
 
-## 当前导航参数
+## 工程结构
 
-| 参数 | 当前值 |
-| --- | ---: |
-| 自动启动延时 | 5000 ms |
-| 路径前向尺度 | 3000 mm |
-| 路径半宽 | 1500 mm |
-| 导航最高速度 | 1500 mm/s |
-| MPC 最大加速度 | 1.2 m/s² |
-| 曲率横向加速度上限 | 800 mm/s² |
-| B 样条弧长 LUT | 128 段 |
+```text
+MY_FOC/
+├── Core/                       控制器、编码器、驱动、外设与保护
+├── Drivers/                    HAL及CMSIS头文件
+├── MDK-ARM/                    Keil工程、启动文件与Flash布局
+├── USB_Device/                 USB设备和CDC实现
+├── tests/                      实际控制源码的主机测试及外设桩
+├── docs/                       接入文档和Core源码快照哈希
+├── telemetry/vesc_encoder_reference_20261107/
+│                               对齐参考版本与GPL原文
+├── XC5000_FOC.ioc              CubeMX配置快照
+└── THIRD_PARTY_NOTICES.md       参考算法与第三方许可说明
+```
 
-完整参数、调试变量、回退方法和实车检查流程见 [四舵轮项目技术文档](01_Car_Swerve_Wheels_AutoNavigation/README.md)。
+| 代码入口 | 职责 |
+|---|---|
+| [`foc.c`](MY_FOC/Core/Src/foc.c) | 位置PD、速度PI、观测器、电流PI、坐标变换和SVPWM |
+| [`main.c`](MY_FOC/Core/Src/main.c) | 启动门控、ADC回调、控制调度、零偏标定和安全停机 |
+| [`motor1_drive.c`](MY_FOC/Core/Src/motor1_drive.c) | 对齐状态机、offset核验和Flash事务 |
+| [`encoder.c`](MY_FOC/Core/Src/encoder.c) | AS5047P流水SPI读取、校验、角度换算和DWT等待 |
+| [`drv8323.c`](MY_FOC/Core/Src/drv8323.c) | DRV8323配置、回读和故障快照 |
+| [`debug.c`](MY_FOC/Core/Src/debug.c) | 通道采集、环形缓冲和前台USB发送 |
 
-## 仓库中的其他工程
+## 来源与许可
 
-| 目录 | 内容 |
-| --- | --- |
-| [`00_Car_Mecanum_Wheels_AutoNavigation/`](00_Car_Mecanum_Wheels_AutoNavigation/) | STM32F407 麦克纳姆轮自动导航工程 |
-| [`00_Remote_NRF_Controller/`](00_Remote_NRF_Controller/) | NRF 遥控端工程 |
-| [`00_Firmware_HEX/`](00_Firmware_HEX/) | 已发布固件 |
-| [`docs/mecanum-navigation-technical-report.md`](docs/mecanum-navigation-technical-report.md) | 原麦轮自动导航技术报告 |
+- **速度观测器方程参考：** [Microchip MCAF Tracking loop](https://microchiptech.github.io/mcaf-doc/6.0.2/algorithms/qei.html#tracking-loop)。本项目按实际dt作离散适配，并非直接复制其SDK。
+- **编码器对齐适配来源：** [Benjamin Vedder / VESC，固定commit](https://github.com/vedderb/bldc/blob/2392b4b8483adecc81c87ccabcaca968efc50d60/motor/mcpwm_foc.c)。相关模块原有GPL-3.0-or-later声明及GPL文本已保留。
+- **厂商库与原有声明：** ST HAL、USB库、Arm CMSIS及原有TI文件头均保留，见[THIRD_PARTY_NOTICES](MY_FOC/THIRD_PARTY_NOTICES.md)。
 
-## 使用前注意
-
-- 自动导航属于实验性功能，首次运行请架空车轮或设置物理急停，并从低速开始。
-- 不要直接复用本项目的电机方向、舵向零位和坐标符号到另一台底盘。
-- 每次只改变一个参数，并明确区分源码、构建产物、下载固件和实车结果。
-- 仓库未打包第三方 AT32 厂商库；请遵守相关 SDK 与器件包许可。
-- 根目录当前未声明开源许可证，除非另有说明，代码权利仍归原作者所有。
-
----
-
-<div align="center">
-
-<h3>让路径规划不只停留在曲线上，让 MPC 和 EKF 真正跑在轮子上。</h3>
-
-<p>如果这个项目对你的移动机器人、全向底盘或嵌入式控制学习有帮助，欢迎 Star。</p>
-
-</div>
+本分支新增`MY_FOC/`并更新首页，仓库其他工程目录保留。其他机器人项目可查看[`main`分支](https://github.com/lzy9760/STM32-Project/tree/main)。

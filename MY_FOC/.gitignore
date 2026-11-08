@@ -1,0 +1,24 @@
+# Build outputs; keep the Flash layout used by this project.
+MDK-ARM/XC5000_FOC/*
+!MDK-ARM/XC5000_FOC/XC5000_FOC.sct
+*.axf
+*.hex
+*.o
+*.d
+*.crf
+*.map
+*.lst
+*.lnp
+*.dep
+*.htm
+*.build_log.*
+*.uvguix.*
+*.uvoptx
+*.bak
+*.Bak
+*.log
+__pycache__/
+*.pyc
+tests/.build/
+.vscode/
+.idea/
